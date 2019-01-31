@@ -1,0 +1,812 @@
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace ConsoleApp1
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            //Set the previous reference process model (as-is situation) workflow number
+            int PRPM = 90;
+
+            //Set the reference process model (to-be situation) workflow number
+            int RPM = 1000135;
+
+            //Create list of possible PMs to be investigated
+            //List<int> PM = new List<int>();
+            int PM = 1000731;
+
+            //Establish the SQL connection
+            SqlConnectionStringBuilder builder = new SqlConnectionStringBuilder()
+            {
+                DataSource = "NLAFASOPEN1",
+                InitialCatalog = "JHE",
+                IntegratedSecurity = true
+            };
+
+            //Load Dutch stopwords
+            string[] stopWords = File.ReadAllLines(@"C:\Users\jhe\Desktop\init\_stopWordsNL.txt");
+
+            //Set a clear environment by dropping all tablesg
+            string initialization = File.ReadAllText(@"C:\Users\jhe\Desktop\init\_initDoc.txt");
+
+            //Set PRPM and RPM
+            string blueprintModels = File.ReadAllText(@"C:\Users\jhe\Desktop\init\_blueprint.txt");
+
+            //Retrieve the workflow environments
+            string[] filePaths = Directory.GetFiles(@"C:\Users\jhe\Desktop\workflow", "*.txt",
+             SearchOption.TopDirectoryOnly);
+
+            //Set a workflow environment
+            string environment = File.ReadAllText(filePaths[19]);
+
+            using (SqlConnection connect = new SqlConnection(builder.ConnectionString))
+            {
+                ////Execute the initialization
+                //connect.Open();
+                //SqlCommand command = new SqlCommand(initialization, connect);
+                //SqlDataReader reader = command.ExecuteReader();
+                //reader.Read();
+                //connect.Close();
+                //Console.WriteLine("Initialization done.");
+
+
+                ////Execute environment script
+                //connect.Open();
+                //command = new SqlCommand(environment, connect);
+                //reader = command.ExecuteReader();
+                //reader.Read();
+                //connect.Close();
+                //Console.WriteLine("AFAS Group loaded.");
+
+                //Define workflow numbers
+                connect.Open();
+                SqlCommand command = new SqlCommand("SELECT AfasKnWorkflowId FROM AfasKnWorkflow", connect);
+                SqlDataReader reader = command.ExecuteReader();
+                List<long> workflowNo = new List<long>();
+                Console.WriteLine("----------------------\nExisting workflows:");
+                while (reader.Read())
+                {
+                    workflowNo.Add(Convert.ToInt64(reader[0]));
+                    Console.WriteLine(reader[0].ToString());
+                }
+                connect.Close();
+
+                Console.WriteLine("-------");
+                
+                Console.WriteLine("This is workflow: " + RPM);
+
+                //Delete previous View for PRPM
+                connect.Open();
+                command = new SqlCommand("DROP VIEW IF EXISTS TATPRPM", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Create View for chains of PRPM
+                connect.Open();
+                command = new SqlCommand("CREATE VIEW TATPRPM AS SELECT DISTINCT Tar.AfasKnTaskId, Ac.AfasKnCaption, Tar.AfasKnTaskIdTarget FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE Tar.AfasKnTaskId = Tk.AfasKnTaskId  AND(Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Tar.AfasKnSeqno = Ac.AfasKnSeqNo) AND Tk.AfasKnWorkflowId =" + PRPM, connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Determine first chains of process models of PRPM (T-A-T)
+                connect.Open();
+                command = new SqlCommand("SELECT * FROM TATPRPM", connect);
+                reader = command.ExecuteReader();
+                List<string> Task1chainTATPRPM = new List<string>();
+                List<string> ActionchainTATPRPM = new List<string>();
+                List<string> Task2chainTATPRPM = new List<string>();
+                Console.WriteLine("----------------------\nTask - Action - Task of PRPM:" + PRPM);
+                while (reader.Read())
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Console.Write(reader[i].ToString() + " ");
+                    }
+                    Task1chainTATPRPM.Add(reader[0].ToString());
+                    ActionchainTATPRPM.Add(reader[1].ToString());
+                    Task2chainTATPRPM.Add(reader[2].ToString());
+                    Console.WriteLine("\n---");
+                }
+                connect.Close();
+
+                //Determine second chains of process models of PRPM (A-T-A)
+                connect.Open();
+                command = new SqlCommand("SELECT DISTINCT TATPRPM.AfasKnCaption as Actie1, Tk.AfasKnTaskId as Task, Ac.AfasKnCaption as Actie2 FROM AfasKnWorkflowAction as Ac, AfasKnWorkflowTask as Tk inner join TATPRPM on TATPRPM.AfasKnTaskIdTarget = Tk.AfasKnTaskId WHERE Tk.AfasKnWorkflowId =" + PRPM + "AND Ac.AfasKnTaskId = Tk.AfasKnTaskId", connect);
+                reader = command.ExecuteReader();
+
+                List<string> Actionchain1ATAPRPM = new List<string>();
+                List<string> TaskchainATAPRPM = new List<string>();
+                List<string> Actionchain2ATAPRPM = new List<string>();
+                Console.WriteLine("----------------------\nAction - Task - Action of PRPM:" + PRPM);
+                while (reader.Read())
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Console.Write(reader[i].ToString() + " ");
+                    }
+
+                    Actionchain1ATAPRPM.Add(reader[0].ToString());
+                    TaskchainATAPRPM.Add(reader[1].ToString());
+                    Actionchain2ATAPRPM.Add(reader[2].ToString());
+                    Console.WriteLine("\n---");
+                }
+                connect.Close();
+                
+                //Delete previous View for RPM
+                connect.Open();
+                command = new SqlCommand("DROP VIEW IF EXISTS TATRPM", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Create View for chains of RPM
+                connect.Open();
+                command = new SqlCommand("CREATE VIEW TATRPM AS SELECT DISTINCT Tar.AfasKnTaskId, Ac.AfasKnCaption, Tar.AfasKnTaskIdTarget FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE Tar.AfasKnTaskId = Tk.AfasKnTaskId  AND(Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Tar.AfasKnSeqno = Ac.AfasKnSeqNo) AND Tk.AfasKnWorkflowId =" + RPM, connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Determine first chains of process models of RPM (T-A-T)
+                connect.Open();
+                command = new SqlCommand("SELECT * FROM TATRPM", connect);
+                reader = command.ExecuteReader();
+                List<string> Task1chainTATRPM = new List<string>();
+                List<string> ActionchainTATRPM = new List<string>();
+                List<string> Task2chainTATRPM = new List<string>();
+                Console.WriteLine("----------------------\nTask - Action - Task of RPM:" + RPM);
+                while (reader.Read())
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Console.Write(reader[i].ToString() + " ");
+                    }
+                    Task1chainTATRPM.Add(reader[0].ToString());
+                    ActionchainTATRPM.Add(reader[1].ToString());
+                    Task2chainTATRPM.Add(reader[2].ToString());
+                    Console.WriteLine("\n---");
+                }
+                connect.Close();
+                
+                //Determine second chains of process models of RPM (A-T-A)
+                connect.Open();
+                command = new SqlCommand("SELECT DISTINCT TATRPM.AfasKnCaption as Actie1, Tk.AfasKnTaskId as Task, Ac.AfasKnCaption as Actie2 FROM AfasKnWorkflowAction as Ac, AfasKnWorkflowTask as Tk inner join TATRPM on TATRPM.AfasKnTaskIdTarget = Tk.AfasKnTaskId WHERE Tk.AfasKnWorkflowId =" + RPM + "AND Ac.AfasKnTaskId = Tk.AfasKnTaskId", connect);
+                reader = command.ExecuteReader();
+
+                List<string> Actionchain1ATARPM = new List<string>();
+                List<string> TaskchainATARPM = new List<string>();
+                List<string> Actionchain2ATARPM = new List<string>();
+                Console.WriteLine("----------------------\nAction - Task - Action of RPM:" + RPM);
+                while (reader.Read())
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Console.Write(reader[i].ToString() + " ");
+                    }
+
+                    Actionchain1ATARPM.Add(reader[0].ToString());
+                    TaskchainATARPM.Add(reader[1].ToString());
+                    Actionchain2ATARPM.Add(reader[2].ToString());
+                    Console.WriteLine("\n---");
+                }
+                connect.Close();
+
+                //Delete previous View for PM
+                connect.Open();
+                command = new SqlCommand("DROP VIEW IF EXISTS TATPM", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Create View for chains of PM
+                connect.Open();
+                command = new SqlCommand("CREATE VIEW TATPM AS SELECT DISTINCT Tar.AfasKnTaskId, Ac.AfasKnCaption, Tar.AfasKnTaskIdTarget FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE Tar.AfasKnTaskId = Tk.AfasKnTaskId  AND(Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Tar.AfasKnSeqno = Ac.AfasKnSeqNo) AND Tk.AfasKnWorkflowId =" + PM, connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Determine first chains of process models of PM (T-A-T)
+                connect.Open();
+                command = new SqlCommand("SELECT * FROM TATPM", connect);
+                reader = command.ExecuteReader();
+                List<string> Task1chainTATPM = new List<string>();
+                List<string> ActionchainTATPM = new List<string>();
+                List<string> Task2chainTATPM = new List<string>();
+                Console.WriteLine("----------------------\nTask - Action - Task of PM:" + PM);
+                while (reader.Read())
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Console.Write(reader[i].ToString() + " ");
+                    }
+                    Task1chainTATPM.Add(reader[0].ToString());
+                    ActionchainTATPM.Add(reader[1].ToString());
+                    Task2chainTATPM.Add(reader[2].ToString());
+                    Console.WriteLine("\n---");
+                }
+                connect.Close();
+
+                //Determine second chains of process models of PM (A-T-A)
+                connect.Open();
+                command = new SqlCommand("SELECT DISTINCT TATPM.AfasKnCaption as Actie1, Tk.AfasKnTaskId as Task, Ac.AfasKnCaption as Actie2 FROM AfasKnWorkflowAction as Ac, AfasKnWorkflowTask as Tk inner join TATPM on TATPM.AfasKnTaskIdTarget = Tk.AfasKnTaskId WHERE Tk.AfasKnWorkflowId =" + PM + "AND Ac.AfasKnTaskId = Tk.AfasKnTaskId", connect);
+                reader = command.ExecuteReader();
+
+                List<string> Actionchain1ATAPM = new List<string>();
+                List<string> TaskchainATAPM = new List<string>();
+                List<string> Actionchain2ATAPM = new List<string>();
+                Console.WriteLine("----------------------\nAction - Task - Action of PM:" + PM);
+                while (reader.Read())
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Console.Write(reader[i].ToString() + " ");
+                    }
+
+                    Actionchain1ATAPM.Add(reader[0].ToString());
+                    TaskchainATAPM.Add(reader[1].ToString());
+                    Actionchain2ATAPM.Add(reader[2].ToString());
+                    Console.WriteLine("\n---");
+                }
+                connect.Close();
+
+                ////Preprocess tasks actions with stopwords removal
+                //for (int i = 0; i < Actionchain1ATA.Count(); i++)
+                //{
+                //    for(int j = 0; j < stopWords.Count(); j++)
+                //    {
+                //        Actionchain1ATA[i] = Actionchain1ATA[i].Replace(stopWords[j], " ");
+                //        Actionchain2ATA[i] = Actionchain2ATA[i].Replace(stopWords[j], " ");
+                //    }
+                //}
+
+                //for(int i = 0; i < ActionchainTAT.Count(); i++)
+                //{
+                //    for(int j = 0; j < stopWords.Count(); j++)
+                //    {
+                //        ActionchainTAT[i] = ActionchainTAT[i].Replace(stopWords[j], " ");
+                //    }
+                //}
+
+                //Auto-detect preparation for task fragments part 1
+                //Delete existing TkFrag View 
+                connect.Open();
+                command = new SqlCommand("DROP VIEW IF EXISTS TkFrag", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Create existing TkFrag View 
+                connect.Open();
+                command = new SqlCommand("CREATE VIEW TkFrag AS SELECT DISTINCT Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId =" + RPM + "AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Ac.AfasKnTaskId = Tar.AfasKnTaskId except SELECT DISTINCT Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId = "+PRPM+" AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Ac.AfasKnTaskId = Tar.AfasKnTaskId", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Add TaskIds to existing TkFrag View 
+                connect.Open();
+                command = new SqlCommand("SELECT Tk.AfasKnTaskId, TkFrag.* FROM TkFrag, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE Tk.AfasKnTaskId = Ac.AfasKnTaskId AND Tk.AfasKnWorkflowId =" + RPM + "AND (TkFrag.AfasKnDescription = Tk.AfasKnDescription AND TkFrag.AfasKnCaption = Ac.AfasKnCaption AND TkFrag.AfasKnSeqNo = Ac.AfasKnSeqNo AND TkFrag.AfasKnActionTypeId = Ac.AfasKnActionTypeId) AND TkFrag.AfasKnDescription NOT IN (SELECT DISTINCT Tk.AfasKnDescription FROM AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId = "+PRPM+" AND Tk.AfasKnTaskId = Ac.AfasKnTaskId)", connect);
+                reader = command.ExecuteReader();
+                List<string> MiddleTasks = new List<string>();
+                List<string> Tasks = new List<string>();
+                List<string> TaskName = new List<string>();
+                while (reader.Read())
+                {
+                    Tasks.Add(reader[0].ToString());
+                    TaskName.Add(reader[1].ToString());
+                    MiddleTasks.Add(reader[0].ToString());
+                }
+                connect.Close();
+
+                Console.WriteLine("----------------------\nNew Tasks are:");
+                for (int i = 0; i < Tasks.Count(); i++)
+                {
+                    Console.WriteLine(Tasks[i] + " " + TaskName[i]);
+                }
+
+                connect.Open();
+                command = new SqlCommand("SELECT DISTINCT Tk.AfasKnTaskId,Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId " +
+                 "FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' " +
+                 "AND Tk.AfasKnWorkflowId = " + RPM + " AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Tar.AfasKnTaskIdTarget = Tk.AfasKnTaskId " +
+                 "except " +
+                 "SELECT DISTINCT Tk.AfasKnTaskId,Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar," +
+                 "AfasKnWorkflowTask as Tk," + "AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId = "+PRPM+" AND " +
+                 "Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Tar.AfasKnTaskIdTarget = Tk.AfasKnTaskId except SELECT DISTINCT Tk.AfasKnTaskId,Tk.AfasKnDescription, Ac.AfasKnCaption, " +
+                 "Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' " +
+                 "and not Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId =" + RPM + "AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Ac.AfasKnTaskId = Tar.AfasKnTaskId " +
+                 "except SELECT DISTINCT Tk.AfasKnTaskId, Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, " +
+                 "AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId = "+PRPM+" AND " +
+                 "Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Ac.AfasKnTaskId = Tar.AfasKnTaskId", connect);
+                reader = command.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    Tasks.Add(reader[0].ToString());
+                    for (int i = 0; i < 2; i++)
+                    {
+                        Console.Write(reader[i].ToString());
+                    }
+                }
+
+                connect.Close();
+
+                //Auto-detect new Action fragments part 1
+                connect.Open();
+                command = new SqlCommand("SELECT DISTINCT Tk.AfasKnTaskId, Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, " +
+                 "AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId = " + RPM +
+                 "AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Tar.AfasKnTaskIdTarget = Tk.AfasKnTaskId except SELECT DISTINCT Tk.AfasKnTaskId, Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, " +
+                 "Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not " +
+                 "Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId = "+PRPM+" AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Tar.AfasKnTaskIdTarget = Tk.AfasKnTaskId " +
+                 "except SELECT DISTINCT Tk.AfasKnTaskId, Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask " +
+                 "as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' AND Tk.AfasKnWorkflowId =" + RPM + "AND Ac.AfasKnTaskId " +
+                 "= Tk.AfasKnTaskId AND Ac.AfasKnTaskId = Tar.AfasKnTaskId except SELECT DISTINCT Tk.AfasKnTaskId, Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId " +
+                 "FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' and not Tk.AfasKnTaskTypeId = '2' " +
+                 "AND Tk.AfasKnWorkflowId = "+PRPM+" AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Ac.AfasKnTaskId = Tar.AfasKnTaskId", connect);
+                reader = command.ExecuteReader();
+                List<string> Actions = new List<string>();
+                var TaskIdAddNew = new List<Tuple<string, string>>();
+                Console.WriteLine("\n----------------------\nNew Actions are:");
+                while (reader.Read())
+                {
+                    TaskIdAddNew.Add(Tuple.Create(reader[0].ToString(), reader[2].ToString()));
+                    Actions.Add(reader[2].ToString());
+                }
+                connect.Close();
+
+                //Delete existing TaskIdAdderView 
+                connect.Open();
+                command = new SqlCommand("DROP VIEW IF EXISTS TaskIdAdder", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Auto-detect new Action fragments part 2
+                connect.Open();
+                command = new SqlCommand("CREATE VIEW TaskIdAdder AS SELECT DISTINCT Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, " +
+                 "AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101' AND Tk.AfasKnWorkflowId = " + RPM +
+                 "AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Ac.AfasKnTaskId = Tar.AfasKnTaskId except SELECT DISTINCT Tk.AfasKnDescription, Ac.AfasKnCaption, Ac.AfasKnSeqNo, " +
+                 "Ac.AfasKnActionTypeId FROM AfasKnWorkflowTargetTask as Tar, AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE not Tk.AfasKnTaskTypeId = '101'  AND Tk.AfasKnWorkflowId = "+PRPM+" AND Ac.AfasKnTaskId = Tk.AfasKnTaskId AND Ac.AfasKnTaskId = Tar.AfasKnTaskId", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read()) { }
+                connect.Close();
+
+                //Auto-detect new Action fragments part 3
+                connect.Open();
+                command = new SqlCommand("SELECT DISTINCT Tk.AfasKnTaskId, TaskIdAdder.* FROM TaskIdAdder, AfasKnWorkflowAction as Ac, AfasKnWorkflowTask as Tk WHERE Ac.AfasKnTaskId = Tk.AfasKnTaskId AND TaskIdAdder.AfasKnDescription = Tk.AfasKnDescription AND TaskIdAdder.AfasKnSeqno = Ac.AfasKnSeqNo AND TaskIdAdder.AfasKnCaption = Ac.AfasKnCaption And TaskIdAdder.AfasKnActionTypeId = Ac.AfasKnActionTypeId and Tk.AfasKnDescription in (SELECT Tk.AfasKnDescription FROM AfasKnWorkflowTask as Tk WHERE Tk.AfasKnWorkflowId = 90)", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    TaskIdAddNew.Add(Tuple.Create(reader[0].ToString(), reader[2].ToString()));
+                    Actions.Add(reader[2].ToString());
+                }
+                connect.Close();
+
+                TaskIdAddNew = TaskIdAddNew.Distinct().ToList();
+
+                List<string> NewActionId = new List<string>();
+                List<string> NewActionName = new List<string>();
+
+                foreach (var o in TaskIdAddNew)
+                {
+                    NewActionId.Add(o.Item1);
+                    NewActionName.Add(o.Item2);
+                }
+
+                for (int i = 0; i < NewActionId.Count(); i++)
+                {
+                    Console.Write(NewActionId[i] + " " + NewActionName[i] + "\n");
+                }
+
+                Console.WriteLine("----------------------");
+
+                //Determine middle and edge actions
+
+                List<string> MiddleActionLeftTask = new List<string>();
+                List<string> MiddleActionsAction = new List<string>();
+                List<string> EdgeActionLeftTask = new List<string>();
+                List<string> EdgeActions = new List<string>();
+                for (int i = 0; i < Task2chainTATRPM.Count(); i++)
+                {
+                    foreach (string str in NewActionId)
+                    {
+                        if ((Task1chainTATRPM[i] == str && Tasks.Contains(str)) && !(Tasks.Contains(Task1chainTATRPM[i]) && Tasks.Contains(Task2chainTATRPM[i])))
+                        {
+                            MiddleActionLeftTask.Add(Task1chainTATRPM[i]);
+                            MiddleActionsAction.Add(ActionchainTATRPM[i]);
+                        }
+                        else if ((Task1chainTATRPM[i] == str && !Tasks.Contains(str)) && Tasks.Contains(Task2chainTATRPM[i]))
+                        {
+                            EdgeActionLeftTask.Add(Task1chainTATRPM[i]);
+                            EdgeActions.Add(ActionchainTATRPM[i]);
+                        }
+                    }
+                }
+
+                for(int i = 0; i < Actionchain2ATARPM.Count(); i++)
+                {
+                    foreach(string str in NewActionId)
+                    {
+                        if(TaskchainATARPM[i] == str && Actions.Contains(Actionchain2ATARPM[i]) && !Tasks.Contains(TaskchainATARPM[i]))
+                        {
+                            EdgeActionLeftTask.Add(TaskchainATARPM[i]);
+                            EdgeActions.Add(Actionchain2ATARPM[i]);
+                        }
+                    }
+                }
+
+                EdgeActionLeftTask = EdgeActionLeftTask.Distinct().ToList();
+                EdgeActions = EdgeActions.Distinct().ToList();
+                
+
+                Console.WriteLine("Edge actions are:");
+
+
+                for (int i = 0; i < MiddleActionLeftTask.Count(); i++)
+                {
+                    Console.Write(MiddleActionLeftTask[i] + " " + MiddleActionsAction[i] + "\n");
+                }
+
+                for (int i = 0; i < EdgeActionLeftTask.Count(); i++)
+                {
+                    Console.Write(EdgeActionLeftTask[i] + " " + EdgeActions[i] + "\n");
+                }
+
+                List<string> TotalEdgesActionsId = new List<string>();
+                TotalEdgesActionsId = MiddleActionLeftTask;
+                TotalEdgesActionsId.AddRange(EdgeActionLeftTask);
+
+                List<string> TotalEdgesActionName = new List<string>();
+                TotalEdgesActionName = MiddleActionsAction;
+                TotalEdgesActionName.AddRange(EdgeActions);
+
+                Console.WriteLine("----------------------\nEdge Tasks are:");
+
+                List<string> edgeMiddleTasks = new List<string>();
+                for (int i = 0; i < Task1chainTATRPM.Count(); i++)
+                {
+                    foreach (string str in MiddleTasks)
+                    {
+                        if (Task2chainTATRPM[i] == str && !NewActionName.Contains(ActionchainTATRPM[i]) && edgeMiddleTasks.Contains(str))
+                        {
+                            edgeMiddleTasks.Add(str);
+                            Console.WriteLine(str);
+                        }
+                    }
+                }
+
+                for (int i = 0; i < Task1chainTATRPM.Count(); i++)
+                {
+                    foreach (string str in MiddleTasks)
+                    {
+                        if (Task2chainTATRPM[i] == str && !NewActionName.Contains(ActionchainTATRPM[i]))
+                        {
+                            edgeMiddleTasks.Add(str);
+                            Console.WriteLine(str);
+                        }
+                    }
+                }
+
+                //Edge actions are
+
+                for (int i = 0; i < ActionchainTATRPM.Count(); i++)
+                {
+                    foreach (string str in EdgeActions)
+                    {
+                        if (Task2chainTATRPM[i] == str && Tasks.Contains(str))
+                        {
+                            Console.WriteLine("");
+                        }
+                    }
+                }
+
+                //Task and Action chains (step 2)
+                Console.WriteLine("----------------------");
+                Console.WriteLine("Neighbours of new Tasks:");
+
+                string positionSaver = "";
+                for (int i = 0; i < Task1chainTATRPM.Count(); i++)
+                {
+                    foreach (string str in edgeMiddleTasks)
+                    {
+                        if (Task2chainTATRPM[i] == str)
+                        {
+                            Console.WriteLine("De linker actie van " + str + " is " + ActionchainTATRPM[i] + " met linkertaak " + Task1chainTATRPM[i]);
+                        }
+                    }
+
+                    for(int j = 0; j < TotalEdgesActionsId.Count(); j++)
+                    {
+                        if(Task1chainTATRPM[i] == TotalEdgesActionsId[j] && ActionchainTATRPM[i] == TotalEdgesActionName[j])
+                        {
+                            positionSaver = Task2chainTATRPM[i];
+                            break;
+                        }
+                    }
+                }
+
+                Console.WriteLine("----------------------\nNeighbours of new Actions:");
+
+                int Tau = 1;
+                List<string> TauLoc = new List<string>();
+                List<string> TauTaskElement = new List<string>();
+                List<string> TauActionElement = new List<string>();
+                for (int i = 0; i < Actionchain1ATARPM.Count(); i++)
+                {
+                    foreach (string str in MiddleActionsAction)
+                    {
+                        if (Actionchain2ATARPM[i] == str && !Tasks.Contains(TaskchainATARPM[i]))
+                        {
+                            TauLoc.Add(str);
+                            TauTaskElement.Add(TaskchainATARPM[i]);
+                            TauActionElement.Add(Actionchain1ATARPM[i]);
+                            Console.WriteLine("Tau " + Tau + ":");
+                            Console.WriteLine("De linker taak van " + str + " is " + TaskchainATARPM[i] + " met linkeractie " + Actionchain1ATARPM[i]);
+                            Tau++;
+                            Console.WriteLine("---");
+                        }
+                    }
+                }
+
+                int sigma = 1;
+                List<string> sigmaLoc = new List<string>();
+                List<string> sigmaTaskElement = new List<string>();
+                List<string> sigmaActionElement = new List<string>();
+
+                for (int k = 0; k < Actionchain1ATARPM.Count(); k++)
+                {
+                    for (int l = 0; l < TotalEdgesActionName.Count(); l++)
+                    {
+                        if(Actionchain1ATARPM[k] == TotalEdgesActionName[l] && TaskchainATARPM[k] == positionSaver && !Tasks.Contains(TaskchainATARPM[k]))
+                        {
+                            sigmaLoc.Add(TotalEdgesActionName[l]);
+                            sigmaTaskElement.Add(TaskchainATARPM[k]);
+                            sigmaActionElement.Add(Actionchain2ATARPM[k]);
+                            Console.WriteLine("sigma " + sigma + ":");
+                            Console.WriteLine("De rechter taak van " + TotalEdgesActionName[l] + " is " + TaskchainATARPM[k] + " met rechteractie " + Actionchain2ATARPM[k]);
+                            sigma++;
+                            Console.WriteLine("---");
+                        }
+                    }
+                }
+                
+
+                //Step 3 PM positioning
+
+                //Substring matching
+
+                //Task names retrieval PRPM
+
+                List<string> PMTaskId = new List<string>();
+                List<string> PMTaskName = new List<string>();
+                connect.Open();
+                command = new SqlCommand("SELECT Tk.AfasKnTaskId, Tk.AfasKnDescription FROM AfasKnWorkflowTask as Tk WHERE Tk.AfasKnWorkflowId = "+PM+" ", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    PMTaskId.Add(reader[0].ToString());
+                    PMTaskName.Add(reader[1].ToString());
+                }
+                connect.Close();
+
+
+                //Action names retrieval PRPM
+
+                List<string> PRPMActionId = new List<string>();
+                List<string> PRPMActionName = new List<string>();
+                connect.Open();
+                command = new SqlCommand("SELECT Ac.AfasKnTaskId, Ac.AfasKnCaption FROM AfasKnWorkflowTask as Tk, AfasKnWorkflowAction as Ac WHERE Tk.AfasKnWorkflowId = "+PRPM+" AND Ac.AfasKnTaskId = Tk.AfasKnTaskId", connect);
+                reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    PRPMActionId.Add(reader[0].ToString());
+                    PRPMActionName.Add(reader[1].ToString());
+                }
+                connect.Close();
+
+                //Translate taskIds to names
+
+                List<string> TauTaskId = new List<string>();
+                List<string> TauNames = new List<string>();
+                foreach(string str in TauTaskElement)
+                {
+                    connect.Open();
+                    command = new SqlCommand("SELECT Tk.AfasKnTaskId , Tk.AfasKnDescription FROM AfasKnWorkflowTask as Tk WHERE Tk.AfasKnWorkflowId ="+RPM+"and Tk.AfasKnTaskId ="+str, connect);
+                    reader = command.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        TauTaskId.Add(reader[0].ToString());
+                        TauNames.Add(reader[1].ToString());
+                    }
+                    connect.Close();
+                }
+                
+                string a1 = "";
+                string a1id = "";
+                string b2 = "";
+                string b2id = "";
+                int threshold = 76;
+                List<string> TaskIdPM = new List<string>();
+                List<string> TaskIdRPM = new List<string>();
+                List<float> TaskScoreTaskMatch = new List<float>();
+
+                for (int i = 0; i < PMTaskName.Count(); i++)
+                {
+                    for (int j = 0; j < TauNames.Count(); j++)
+                    {
+                        a1 = PMTaskName[i].Replace(" ", string.Empty);
+                        a1id = PMTaskId[i];
+                        b2 = TauNames[j].Replace(" ", string.Empty);
+                        b2id = TauTaskId[j];
+                        float outputlcs = Lcs(a1, b2);
+                        float largeststring = Ls(a1, b2);
+                        if((outputlcs / largeststring) * 100 > threshold)
+                        {
+                            TaskIdPM.Add(a1id);
+                            TaskIdRPM.Add(b2id);
+                            TaskScoreTaskMatch.Add((outputlcs / largeststring) * 100);
+                        }
+                    }
+                }
+
+
+                TaskIdPM = TaskIdPM.Distinct().ToList();
+                TaskIdRPM = TaskIdRPM.Distinct().ToList();
+
+
+                for (int i = 0; i < TaskIdPM.Count(); i++)
+                {
+                    Console.WriteLine("Match found between " + TaskIdPM[i] + " and " + TaskIdRPM[i] + " with score " + TaskScoreTaskMatch[i] + " %");
+                }
+
+                //Take Actions left of the tasks
+                
+                List<string> ActionNamePM = new List<string>();
+                List<string> ActionNameRPM = new List<string>();
+                List<float> ActionScoreTaskMatch = new List<float>();
+
+                for (int i = 0; i < Task2chainTATPM.Count(); i++)
+                {
+                    for (int j = 0; j < TaskIdPM.Count(); j++)
+                    {
+                        if(Task2chainTATPM[i] == TaskIdPM[j])
+                        {
+                            ActionNamePM.Add(ActionchainTATPM[i]);
+                        }
+                    }
+                }
+
+                for(int i = 0; i < Task2chainTATRPM.Count(); i++)
+                {
+                    for(int j = 0; j < TaskIdRPM.Count(); j++)
+                    {
+                        if (Task2chainTATRPM[i] == TaskIdRPM[j])
+                        {
+                            ActionNameRPM.Add(ActionchainTATRPM[i]);
+                        }
+                    }
+                }
+
+                for (int i = 0; i < ActionNameRPM.Count(); i++)
+                {
+                    a1 = ActionNamePM[i];
+                    b2 = ActionNameRPM[i];
+                    float outputlcs = Lcs(a1, b2);
+                    float largeststring = Ls(a1, b2);
+                    if ((outputlcs / largeststring) * 100 > threshold)
+                    {
+                        ActionScoreTaskMatch.Add((outputlcs / largeststring) * 100);
+                    }
+                }
+
+                for (int i = 0; i < ActionNamePM.Count(); i++)
+                {
+                    Console.WriteLine("Match found between " + ActionNamePM[i] + " and " + ActionNameRPM[i] + " with score " + ActionScoreTaskMatch[i]  + " %");
+                }
+
+                TauTaskElement = TauTaskElement.Distinct().ToList();
+
+                for(int i = 0; i < TauTaskElement.Count(); i++)
+                {
+                    for(int j = 0; j < ActionNamePM.Count(); j++)
+                    {
+                        Console.WriteLine("test");
+                        
+                        //Insert actions to Workflow
+                        //connect.Open();
+                        //command = new SqlCommand("INSERT INTO AfasKnWorkflowAction (AfasKnTaskId, AfasKnSeqNo, AfasKnActionTypeId, AfasKnName, AfasKnCaption, AfasKnPresentationSeqNo, AfasKnSystem, AfasKnCodeTable, AfasKnValueIntId, AfasKnSystemExternal, AfasKnCodeTableExternal, AfasKnValueIntIdExternal, AfasKnValueIntIdVisible, AfasKnValueIntIdReacManStatus, AfasKnSendMessage, AfasKnValueIntIdRecipient, AfasKnMessageTemplate, AfasKnWebImageId, AfasKnActionCategoryId, AfasKnDescription, AfasKnVisibilityCondition, AfasKnNextTaskCondition, AfasKnNextTaskUserCount, AfasKnAutoExecCondition, AfasKnValueIntIdConfirmation, AfasKnTransDescription, AfasKnTransText, AfasKnCaptionWithResourceId, AfasKnCaptionDelegate, AfasKnWebImageIdDelegate, AfasKnReacManStatusDelegate, AfasKnTransDescriptionDelegate, AfasKnCaptionUndoDelegate, AfasKnWebImageIdUndoDelegate, AfasKnTransDsUndoDelegate) VALUES(1007658, 5, 1, 'CA45186E3C634031AD4FC4C20DE8000B', 'Actie doorvoeren', 5, NULL, NULL, NULL, NULL, NULL, NULL, 1, 2, 0, NULL, NULL, 2, 1, NULL, '7342B3CD-473F-4FC5-889B-161644FBFB65', 1, NULL, NULL, 1, NULL, NULL, NULL, 'Afhandelen', 6, 2, NULL, 'Terughalen', 7, NULL)", connect);
+                        //reader = command.ExecuteReader();
+                        //while (reader.Read())
+                        //{
+                        //}
+                        //connect.Close();
+
+                    }
+                }
+
+
+
+
+                //for(int i = 0; i < PRPMActionName.Count(); i++)
+                //{
+                //    for (int k = 0; k < TauActionElement.Count(); k++)
+                //    {
+                //        a1 = PRPMActionName[i].Replace(" ", string.Empty);
+                //        b2 = TauActionElement[k].Replace(" ", string.Empty);
+                //        float outputlcs = Lcs(a1, b2);
+                //        float largeststring = Ls(a1, b2);
+                //        if ((outputlcs / largeststring) * 100 > threshold)
+                //        {
+                //            Console.WriteLine("ACTION:" + "Match found between " + a1 + " and " + b2 + " with score " + (outputlcs / largeststring) * 100 + " %");
+                //        }
+                //    }
+                //}
+
+
+
+                //Guid creator
+                //string aa = Guid.NewGuid().ToString();
+                //aa = aa.ToString().Replace("-", string.Empty).ToUpper();
+                //Console.WriteLine(aa);
+                // the code that you want to measure comes here
+                watch.Stop();
+                var elapsedMs = watch.ElapsedMilliseconds;
+                Console.WriteLine(elapsedMs);
+            }
+            Console.ReadKey();
+        }
+
+
+        //Method for longest common substring (lcs)
+        public static float Lcs(string a, string b)
+        {
+            var lengths = new int[a.Length, b.Length];
+            int greatestLength = 0;
+            string output = "";
+            for (int i = 0; i < a.Length; i++)
+            {
+                for (int j = 0; j < b.Length; j++)
+                {
+                    if (a[i] == b[j])
+                    {
+                        lengths[i, j] = i == 0 || j == 0 ? 1 : lengths[i - 1, j - 1] + 1;
+                        if (lengths[i, j] > greatestLength)
+                        {
+                            greatestLength = lengths[i, j];
+                            output = a.Substring(i - greatestLength + 1, greatestLength);
+                        }
+                    }
+                    else
+                    {
+                        lengths[i, j] = 0;
+                    }
+                }
+            }
+            return output.Length;
+        }
+
+
+        private static float Ls(string a, string b)
+        {
+            string outputls = "";
+            if(a.Length >= b.Length)
+            {
+                outputls = a;
+            }
+            else
+            {
+                outputls = b;
+            }
+            return outputls.Length;
+        }
+    }
+
+    
+}
